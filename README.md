@@ -85,13 +85,13 @@ def first_question(sender, instance, **kwargs):
 
 # Q2 - Do django signals run in the same thread as the caller?
 @receiver(post_save, sender=Demo_model)
-def second_function(sender, instance, **kwargs):
+def second_question(sender, instance, **kwargs):
     print(threading.current_thread().name)
 
 
 # Q3 - Do django signals run in the same database transaction as the caller?
 @receiver(post_save, sender=Demo_model)
-def thirdfunction(sender, instance, **kwargs):
+def third_question(sender, instance, **kwargs):
     if connection.in_atomic_block:
         print("Inside transaction")
     else:
