@@ -5,14 +5,12 @@ This project was given to me as a company assignment. It has two parts:
 1. Practical proof for three questions related to Django Signals
 2. A custom Rectangle class that can be iterated over
 
-Below I have explained everything step by step - what I did, why I did it, and what output should come.
-
 ---
 
 ## Project Structure
 
 ```
-Accuknox/
+Accuknox_Task/
     manage.py
     requirements.txt
     README.md
@@ -33,27 +31,61 @@ Accuknox/
 
 ---
 
-## Setup Steps
+## Local Setup
+
+Clone the repo and go inside the project folder:
+
+```bash
+git clone <repo-url>
+cd Accuknox_Task
+```
+
+Create a virtual environment and activate it:
 
 ```bash
 python -m venv venv
 source venv/bin/activate      # on windows: venv\Scripts\activate
+```
 
+Install the requirements:
+
+```bash
 pip install -r requirements.txt
+```
 
+Run migrations:
+
+```bash
 python manage.py makemigrations
 python manage.py migrate
 ```
+
+Start the server (optional, just to confirm everything is set up correctly):
+
+```bash
+python manage.py runserver
+```
+
+---
+
+## How to open the Django shell
+
+All the testing for this assignment is done through the Django shell, not through views/urls.
+
+```bash
+python manage.py shell
+```
+
+This opens an interactive Python shell where Django is already set up, so you can directly import models and run code.
 
 ---
 
 ## Part 1 - Django Signals
 
-I created a simple model for testing purposes, called `Demo_model`. It has no special purpose, it's only used to trigger the signal.
-
-### models.py (signals_task)
+I created a simple model called `Demo_model`, just to trigger the `post_save` signal. It has no other purpose.
 
 ```python
+# signals_task/models.py
 from django.db import models
 
 
@@ -64,75 +96,26 @@ class Demo_model(models.Model):
         return self.name
 ```
 
-### signals.py (signals_task)
-
-```python
-import time
-import threading
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-from django.db import connection
-from .models import Demo_model
-
-
-# Q1 - Are django signals executed synchronously or asynchronously?
-@receiver(post_save, sender=Demo_model)
-def first_question(sender, instance, **kwargs):
-    print("Signal started")
-    time.sleep(7)
-    print("Signal finished")
-
-
-# Q2 - Do django signals run in the same thread as the caller?
-@receiver(post_save, sender=Demo_model)
-def second_question(sender, instance, **kwargs):
-    print(threading.current_thread().name)
-
-
-# Q3 - Do django signals run in the same database transaction as the caller?
-@receiver(post_save, sender=Demo_model)
-def third_question(sender, instance, **kwargs):
-    if connection.in_atomic_block:
-        print("Inside transaction")
-    else:
-        print("Not inside transaction")
-```
-
-### apps.py (signals_task)
-
-```python
-from django.apps import AppConfig
-
-
-class SignalsTaskConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'signals_task'
-
-    def ready(self):
-        import signals_task.signals
-```
-
-### __init__.py (signals_task)
-
-```python
-default_app_config = 'signals_task.apps.SignalsTaskConfig'
-```
+All three signal functions below are connected to the `post_save` signal of `Demo_model`. So whenever `Demo_model.objects.create()` is called, all three functions run together - that's why all three outputs (sync delay, thread name, transaction status) show up together in every test case, even when we're checking only one question.
 
 ---
-
-## Question wise explanation
 
 ### Question 1: Are django signals executed synchronously or asynchronously?
 
 **My answer:** Synchronously.
 
+```python
+# signals_task/signals.py
+@receiver(post_save, sender=Demo_model)
+def first_question(sender, instance, **kwargs):
+    print("Signal started")
+    time.sleep(7)
+    print("Signal finished")
+```
+
 **Why?**
 
-I added `time.sleep(7)` inside the `first_question` function. This means the signal will take 7 seconds to finish when it runs.
-
-When I call `Demo_model.objects.create(name="something")`, if the signal was asynchronous, the `create()` call would return immediately and "Signal finished" would print later, in the background.
-
-But when I ran this, the `create()` line was **blocked for 7 seconds** and only after that did the return value (`<Demo_model: ...>`) get printed. This shows that Django waits for the signal to fully complete before moving on - which means it is **synchronous**.
+I added `time.sleep(7)` inside this function. If signals were asynchronous, `create()` would return immediately and "Signal finished" would print later in the background. But the `create()` call gets blocked for 7 seconds, and only after that the return value is printed. This proves the main code waits for the signal to finish - i.e. it is **synchronous**.
 
 **Test case (run in shell):**
 
@@ -149,7 +132,7 @@ print("Time taken:", time.time() - start)
 
 ```
 Signal started
-(it will wait here for 7 seconds)
+(waits 7 seconds)
 Signal finished
 MainThread
 Not inside transaction
@@ -159,17 +142,22 @@ Time taken: 7.00xx
 
 If "Time taken" is around 7 seconds, that confirms the proof.
 
-Note: All three signals (`first_question`, `second_function`, `thirdfunction`) are connected to the same `post_save` signal of `Demo_model`. So whenever `Demo_model.objects.create()` is called - even while testing just Q1 - all three of them run together. That's why "MainThread" and "Not inside transaction" also show up in the output above, even though we are only checking Q1 here. The `<Demo_model: Test1>` line is just the return value of `create()` being displayed by the shell, and "Time taken" is from my own print statement.
-
 ---
 
 ### Question 2: Do django signals run in the same thread as the caller?
 
 **My answer:** Yes, same thread.
 
+```python
+# signals_task/signals.py
+@receiver(post_save, sender=Demo_model)
+def second_question(sender, instance, **kwargs):
+    print(threading.current_thread().name)
+```
+
 **Why?**
 
-In `second_function`, I printed `threading.current_thread().name`. If I also print this same line in my normal code (outside the signal), and both show the same name (`MainThread`), it means the signal is not creating a separate thread - it is using the same thread that the caller (my code) was using.
+I print the current thread name inside the signal. If I also print the thread name in my own code (before calling `create()`), and both show the same name (`MainThread`), it means the signal did not create a separate thread - it ran in the same thread as the caller.
 
 **Test case (run in shell):**
 
@@ -186,14 +174,14 @@ Demo_model.objects.create(name="Test2")
 ```
 Main thread name: MainThread
 Signal started
-(7 sec wait)
+(waits 7 seconds)
 Signal finished
 MainThread
 Not inside transaction
 <Demo_model: Test2>
 ```
 
-Both places show `MainThread` - once from my print statement, and once from inside the signal. This confirms same thread.
+Both lines show `MainThread` - one from my own print, one from inside the signal. This confirms same thread.
 
 ---
 
@@ -201,16 +189,19 @@ Both places show `MainThread` - once from my print statement, and once from insi
 
 **My answer:** Yes, by default they run in the same transaction.
 
+```python
+# signals_task/signals.py
+@receiver(post_save, sender=Demo_model)
+def third_question(sender, instance, **kwargs):
+    if connection.in_atomic_block:
+        print("Inside transaction")
+    else:
+        print("Not inside transaction")
+```
+
 **Why?**
 
-In `thirdfunction`, I checked `connection.in_atomic_block` - this tells whether Django is currently inside a transaction or not.
-
-I tested this in two ways:
-
-1. First I ran a normal `create()` - it printed "Not inside transaction" because by default Django uses a separate auto-commit transaction for each query.
-2. Then I created an object inside a `transaction.atomic()` block and raised an error right after, so the whole block fails (rollback happens).
-
-The result was that the object created through the signal also got rolled back - meaning the signal was part of the **same transaction** as my code. If the signal was running in a separate transaction, its work would still be saved in the database even after the error.
+`connection.in_atomic_block` tells whether Django is currently inside a transaction or not. I tested this in two ways: a normal `create()` outside any transaction, and a `create()` inside `transaction.atomic()` followed by a forced error (so the whole block rolls back).
 
 **Test case (run in shell):**
 
@@ -221,7 +212,7 @@ from signals_task.models import Demo_model
 # normal create - no transaction
 Demo_model.objects.create(name="Test3")
 
-# now try inside an atomic block and raise an error
+# inside an atomic block, then force an error
 try:
     with transaction.atomic():
         Demo_model.objects.create(name="Test4")
@@ -237,14 +228,14 @@ print(Demo_model.objects.filter(name="Test4").exists())
 
 ```
 Signal started
-(7 sec wait)
+(waits 7 seconds)
 Signal finished
 MainThread
 Not inside transaction
 <Demo_model: Test3>
 
 Signal started
-(7 sec wait)
+(waits 7 seconds)
 Signal finished
 MainThread
 Inside transaction
@@ -253,15 +244,14 @@ Error: forcing rollback
 False
 ```
 
-The last line is `False` - meaning Test4 was never actually saved, it got rolled back. This is the proof that the signal was part of the same transaction.
+The last line is `False` - Test4 was never actually saved, it got rolled back along with the outer transaction. This proves the signal ran inside the same transaction as the caller. If it had run in a separate transaction, Test4 would still exist in the database even after the error.
 
 ---
 
 ## Part 2 - Rectangle Class
 
-### models.py (rectangle_task)
-
 ```python
+# rectangle_task/models.py
 class Rectangle:
     def __init__(self, length: int, width: int):
         self.length = length
@@ -275,8 +265,8 @@ class Rectangle:
 **Explanation:**
 
 - `__init__` stores the length and width, both are integers.
-- `__iter__` is a special method that makes the class "iterable", meaning it can be used in a `for` loop.
-- `yield` returns one value at a time, one after another - first the length dictionary, then the width dictionary.
+- `__iter__` makes the class iterable, so it can be used in a `for` loop.
+- `yield` returns one value at a time - first the length dictionary, then the width dictionary.
 
 **Test case (run in shell):**
 
@@ -297,11 +287,9 @@ for item in rect:
 
 ---
 
-## All test cases together (copy-paste in shell)
+## Running all test cases together
 
-Note: Above, I showed the output for each question separately (Q1's output, then Q2's output, then Q3's output, one by one). That was when I ran each test case on its own.
-
-But if you run the combined block below all at once, all of that output will come together, one after another, in the same order as the code runs (Q1's output first, then Q2's, then Q3's, then Rectangle's). It's the same output as above, just not separated - it will appear as one continuous block in the shell.
+If you run all the test cases above one after another in the same shell session, the output of all of them will appear together in one continuous block, in the order the code runs. The content is the same as shown above for each question - it just won't be separated.
 
 ```python
 from signals_task.models import Demo_model
@@ -310,45 +298,27 @@ from django.db import transaction
 import time
 import threading
 
-# Q1 - synchronous check
-print("---- Q1 ----")
+# Q1
 start = time.time()
 Demo_model.objects.create(name="Test1")
 print("Time taken:", time.time() - start)
 
-# Q2 - thread check
-print("---- Q2 ----")
+# Q2
 print("Main thread name:", threading.current_thread().name)
 Demo_model.objects.create(name="Test2")
 
-# Q3 - transaction check
-print("---- Q3 ----")
+# Q3
 Demo_model.objects.create(name="Test3")
-
 try:
     with transaction.atomic():
         Demo_model.objects.create(name="Test4")
         raise Exception("forcing rollback")
 except Exception as e:
     print("Error:", e)
-
 print("Test4 exists?", Demo_model.objects.filter(name="Test4").exists())
 
-# Rectangle check
-print("---- Rectangle ----")
+# Rectangle
 rect = Rectangle(10, 5)
 for item in rect:
     print(item)
 ```
-
----
-
-## Summary
-
-So to quickly sum up what I found out:
-
-- Q1: Django signals run **synchronously** - the main code waits for the signal to finish before moving forward.
-- Q2: Signals run in the **same thread** as the caller, no separate thread is created.
-- Q3: By default, signals are part of the **same database transaction** as the caller - if the transaction rolls back, whatever the signal did also gets rolled back.
-
-I have explained the reasoning and shown the test cases with expected output for each of these above.
