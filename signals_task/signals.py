@@ -14,7 +14,6 @@ def first_question(sender, instance, **kwargs):
     print("Signal started")
     time.sleep(7)  #  The 7-second delay blocks the caller until the signal execution is completed
                    #Hence it proves that django signals works synchronously . 
-   
     print("Signal finished")
 
 # Q2:
